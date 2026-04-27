@@ -38,11 +38,16 @@ model = tf.keras.models.load_model(MODEL_PATH, compile=False)
 # -------------------------------
 # 🔥 Grad-CAM setup
 # -------------------------------
-last_conv_layer = model.get_layer("block14_sepconv2_act")
+grad_model = tf.keras.models.clone_model(model)
+grad_model.set_weights(model.get_weights())
+grad_model.layers[-1].activation = None
 
 grad_model = tf.keras.models.Model(
-    inputs=model.input,
-    outputs=[last_conv_layer.output, model.output],
+    inputs=[grad_model.inputs],
+    outputs=[
+        grad_model.get_layer("global_average_pooling2d_1").input,
+        grad_model.output,
+    ],
 )
 
 # -------------------------------
@@ -116,7 +121,7 @@ col1, col2 = st.columns(2)
 if uploaded_file is not None:
     with col1:
         st.subheader("Input Image")
-        st.image(uploaded_file, width="stretch")
+        st.image(uploaded_file, use_column_width=True)
 
         # Preprocess
         img = Image.open(uploaded_file).convert("RGB").resize(target_size)
@@ -160,7 +165,7 @@ if "preds" in st.session_state:
             st.session_state["img"], heatmap
         )
 
-        st.image(cam_image, width="stretch")
+        st.image(cam_image, use_column_width=True)
 
         st.subheader("Analysis")
 

@@ -1,4 +1,4 @@
-streamlit==1.36.0
+streamlit==1.20.0
 
 tensorflow==2.10.0
 keras==2.10.0
@@ -6,14 +6,15 @@ keras==2.10.0
 numpy==1.23.3
 pandas==1.5.0
 scikit-learn==1.1.2
+scipy==1.13.1
 
 matplotlib==3.6.0
 seaborn==0.11.2
 
-pillow
+pillow==10.4.0
 
 opencv-python-headless==4.7.0.72
 
-protobuf==3.20.3
+protobuf==3.19.6
 
-gdown
+gdown==6.0.0
