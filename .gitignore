@@ -21,3 +21,8 @@ Thumbs.db
 # Logs
 *.log
 
+# Data (important)
+dataset/
+
+# Models (ignore ONLY model folder)
+src/models/
