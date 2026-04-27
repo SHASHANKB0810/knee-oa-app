@@ -1,5 +1,6 @@
 import os
 
+os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
 # 🔧 Environment fixes (keep these at top)
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
