@@ -1,5 +1,9 @@
 import os
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,7 +27,8 @@ def make_gradcam_heatmap(grad_model, img_array, pred_index=None):
     heatmap = last_conv_layer_output @ pooled_grads[..., tf.newaxis]
     heatmap = tf.squeeze(heatmap)
 
-    heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+    max_val = tf.math.reduce_max(heatmap)
+    heatmap = tf.maximum(heatmap, 0) / (max_val + 1e-8)
     return heatmap.numpy()
 
 
@@ -47,7 +52,7 @@ def save_and_display_gradcam(img, heatmap, alpha=0.4):
     return superimposed_img
 
 
-icon = Image.open("app/img/mcd.jpg")
+icon = Image.open("img\mcd.jpg")
 st.set_page_config(
     page_title="Severity Analysis of Arthrosis in the Knee",
     page_icon=icon,
@@ -55,7 +60,10 @@ st.set_page_config(
 
 class_names = ["Healthy", "Doubtful", "Minimal", "Moderate", "Severe"]
 
-model = tf.keras.models.load_model("./src/models/model_Xception_ft.hdf5")
+model = tf.keras.models.load_model(
+    "../src\models\model_Xception_ft.hdf5",
+    compile=False
+)
 target_size = (224, 224)
 
 # Grad-CAM
@@ -88,13 +96,11 @@ y_pred = None
 if uploaded_file is not None:
     with col1:
         st.subheader(":camera: Input")
-        st.image(uploaded_file, use_container_width=True)
+        st.image(uploaded_file, width="stretch")
 
 
-        img = tf.keras.preprocessing.image.load_img(
-            uploaded_file, target_size=target_size
-        )
-        img = tf.keras.preprocessing.image.img_to_array(img)
+        img = Image.open(uploaded_file).convert("RGB").resize(target_size)
+        img = np.array(img)
         img_aux = img.copy()
 
         if st.button(
@@ -127,7 +133,7 @@ if uploaded_file is not None:
             st.subheader(":mag: Explainability")
             heatmap = make_gradcam_heatmap(grad_model, img_array)
             image = save_and_display_gradcam(img, heatmap)
-            st.image(image, use_container_width=True)
+            st.image(image, width="stretch")
 
 
             st.subheader(":bar_chart: Analysis")

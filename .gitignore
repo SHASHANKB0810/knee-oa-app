@@ -1,4 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS files
 .DS_Store
-*.ipynb_checkpoints
-*.hdf5
-*.h5
+Thumbs.db
+
+# Streamlit
+.streamlit/
+
+# Logs
+*.log
+
