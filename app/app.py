@@ -1,34 +1,83 @@
 import os
 
+# 🔧 Environment fixes (keep these at top)
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 import tensorflow as tf
 from PIL import Image
+import gdown
 
+# -------------------------------
+# 📁 Paths (robust)
+# -------------------------------
+BASE_DIR = os.path.dirname(__file__)
 
+ICON_PATH = os.path.join(BASE_DIR, "img", "mcd.jpg")
+MODEL_PATH = os.path.join(BASE_DIR, "..", "src", "models", "model_Xception_ft.hdf5")
+
+# -------------------------------
+# 📥 Download model if not exists
+# -------------------------------
+if not os.path.exists(MODEL_PATH):
+    os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
+    url = "https://drive.google.com/uc?id=16gSCL2s2t_itsj3a0myjY7kz9WudOBhC"
+    gdown.download(url, MODEL_PATH, quiet=False)
+
+# -------------------------------
+# 🤖 Load model
+# -------------------------------
+model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+
+# -------------------------------
+# 🔥 Grad-CAM setup
+# -------------------------------
+last_conv_layer = model.get_layer("block14_sepconv2_act")
+
+grad_model = tf.keras.models.Model(
+    inputs=model.input,
+    outputs=[last_conv_layer.output, model.output],
+)
+
+# -------------------------------
+# 🖼️ UI Setup
+# -------------------------------
+icon = Image.open(ICON_PATH)
+
+st.set_page_config(
+    page_title="Severity Analysis of Arthrosis in the Knee",
+    page_icon=icon,
+)
+
+class_names = ["Healthy", "Doubtful", "Minimal", "Moderate", "Severe"]
+target_size = (224, 224)
+
+# -------------------------------
+# 🔥 Grad-CAM functions
+# -------------------------------
 def make_gradcam_heatmap(grad_model, img_array, pred_index=None):
     with tf.GradientTape() as tape:
-        last_conv_layer_output, preds = grad_model(img_array)
+        conv_output, preds = grad_model(img_array)
         if pred_index is None:
             pred_index = tf.argmax(preds[0])
         class_channel = preds[:, pred_index]
 
-    grads = tape.gradient(class_channel, last_conv_layer_output)
-
+    grads = tape.gradient(class_channel, conv_output)
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
 
-    last_conv_layer_output = last_conv_layer_output[0]
-    heatmap = last_conv_layer_output @ pooled_grads[..., tf.newaxis]
+    conv_output = conv_output[0]
+    heatmap = conv_output @ pooled_grads[..., tf.newaxis]
     heatmap = tf.squeeze(heatmap)
 
-    max_val = tf.math.reduce_max(heatmap)
-    heatmap = tf.maximum(heatmap, 0) / (max_val + 1e-8)
+    heatmap = tf.maximum(heatmap, 0)
+    heatmap /= (tf.reduce_max(heatmap) + 1e-8)
+
     return heatmap.numpy()
 
 
@@ -36,7 +85,6 @@ def save_and_display_gradcam(img, heatmap, alpha=0.4):
     heatmap = np.uint8(255 * heatmap)
 
     jet = cm.get_cmap("jet")
-
     jet_colors = jet(np.arange(256))[:, :3]
     jet_heatmap = jet_colors[heatmap]
 
@@ -45,105 +93,86 @@ def save_and_display_gradcam(img, heatmap, alpha=0.4):
     jet_heatmap = tf.keras.preprocessing.image.img_to_array(jet_heatmap)
 
     superimposed_img = jet_heatmap * alpha + img
-    superimposed_img = tf.keras.preprocessing.image.array_to_img(
-        superimposed_img
-    )
+    superimposed_img = tf.keras.preprocessing.image.array_to_img(superimposed_img)
 
     return superimposed_img
 
 
-icon = Image.open("img\mcd.jpg")
-st.set_page_config(
-    page_title="Severity Analysis of Arthrosis in the Knee",
-    page_icon=icon,
-)
-
-class_names = ["Healthy", "Doubtful", "Minimal", "Moderate", "Severe"]
-
-model = tf.keras.models.load_model(
-    "../src\models\model_Xception_ft.hdf5",
-    compile=False
-)
-target_size = (224, 224)
-
-# Grad-CAM
-grad_model = tf.keras.models.clone_model(model)
-grad_model.set_weights(model.get_weights())
-grad_model.layers[-1].activation = None
-grad_model = tf.keras.models.Model(
-    inputs=[grad_model.inputs],
-    outputs=[
-        grad_model.get_layer("global_average_pooling2d_1").input,
-        grad_model.output,
-    ],
-)
-
-# Sidebar
+# -------------------------------
+# 📊 Sidebar
+# -------------------------------
 with st.sidebar:
     st.image(icon)
     st.subheader("Knee Osteoarthritis Analysis")
+    uploaded_file = st.file_uploader("Upload X-ray image")
 
-    st.subheader(":arrow_up: Upload image")
-    uploaded_file = st.file_uploader("Choose x-ray image")
-
-
-# Body
+# -------------------------------
+# 📊 Main UI
+# -------------------------------
 st.header("Severity Analysis of Arthrosis in the Knee")
 
 col1, col2 = st.columns(2)
-y_pred = None
 
 if uploaded_file is not None:
     with col1:
-        st.subheader(":camera: Input")
+        st.subheader("Input Image")
         st.image(uploaded_file, width="stretch")
 
-
+        # Preprocess
         img = Image.open(uploaded_file).convert("RGB").resize(target_size)
         img = np.array(img)
-        img_aux = img.copy()
 
-        if st.button(
-            ":arrows_counterclockwise: Predict Arthrosis in the Knee"
-        ):
-            img_array = np.expand_dims(img_aux, axis=0)
+        if st.button("Predict"):
+            img_array = np.expand_dims(img, axis=0)
             img_array = np.float32(img_array)
-            img_array = tf.keras.applications.xception.preprocess_input(
-                img_array
-            )
+            img_array = tf.keras.applications.xception.preprocess_input(img_array)
 
-            with st.spinner("Wait for it..."):
-                y_pred = model.predict(img_array)
+            with st.spinner("Predicting..."):
+                preds = model.predict(img_array)
 
-            y_pred = 100 * y_pred[0]
+            preds = 100 * preds[0]
 
-            probability = np.amax(y_pred)
-            number = np.where(y_pred == np.amax(y_pred))
-            grade = str(class_names[np.amax(number)])
+            index = np.argmax(preds)
+            probability = preds[index]
 
-            st.subheader(":white_check_mark: Prediction")
-
+            st.subheader("Prediction")
             st.metric(
-                label="Severity Grade:",
-                value=f"{class_names[np.amax(number)]} - {probability:.2f}%",
+                label="Severity Grade",
+                value=f"{class_names[index]} ({probability:.2f}%)",
             )
 
-    if y_pred is not None:
-        with col2:
-            st.subheader(":mag: Explainability")
-            heatmap = make_gradcam_heatmap(grad_model, img_array)
-            image = save_and_display_gradcam(img, heatmap)
-            st.image(image, width="stretch")
+            # Save for second column
+            st.session_state["preds"] = preds
+            st.session_state["img"] = img
+            st.session_state["img_array"] = img_array
 
+# -------------------------------
+# 📊 Grad-CAM + Graph
+# -------------------------------
+if "preds" in st.session_state:
+    with col2:
+        st.subheader("Explainability")
 
-            st.subheader(":bar_chart: Analysis")
+        heatmap = make_gradcam_heatmap(
+            grad_model, st.session_state["img_array"]
+        )
+        cam_image = save_and_display_gradcam(
+            st.session_state["img"], heatmap
+        )
 
-            fig, ax = plt.subplots(figsize=(5, 2))
-            ax.barh(class_names, y_pred, height=0.55, align="center")
-            for i, (c, p) in enumerate(zip(class_names, y_pred)):
-                ax.text(p + 2, i - 0.2, f"{p:.2f}%")
-            ax.grid(axis="x")
-            ax.set_xlim([0, 120])
-            ax.set_xticks(range(0, 101, 20))
-            fig.tight_layout()
-            st.pyplot(fig)
+        st.image(cam_image, width="stretch")
+
+        st.subheader("Analysis")
+
+        preds = st.session_state["preds"]
+
+        fig, ax = plt.subplots(figsize=(5, 2))
+        ax.barh(class_names, preds)
+
+        for i, p in enumerate(preds):
+            ax.text(p + 1, i, f"{p:.2f}%")
+
+        ax.set_xlim([0, 100])
+        ax.grid(axis="x")
+
+        st.pyplot(fig)
